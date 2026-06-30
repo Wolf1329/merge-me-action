@@ -1,107 +1,18 @@
+import { getInput } from '@actions/core';
 import { context, getOctokit } from '@actions/github';
-import type { GraphQlQueryResponseData } from '@octokit/graphql';
 import { isMatch } from 'micromatch';
 
+import { computeRequiresStrictStatusChecksForRefs as computeRequiresStrictStatusChecksForReferences } from '../../common/computeRequiresStrictStatusChecksForRefs';
 import {
   delay,
   EXPONENTIAL_BACKOFF,
   MINIMUM_WAIT_TIME,
 } from '../../common/delay';
+import { getMergeablePullRequestInformationByPullRequestNumber } from '../../common/getPullRequestInformation';
+import { listBranchProtectionRules } from '../../common/listBranchProtectionRules';
 import { tryMerge } from '../../common/merge';
-import { findPullRequestInfoByNumber } from '../../graphql/queries';
-import {
-  FindPullRequestInfoByNumberResponse,
-  PullRequestInformationContinuousIntegrationEnd,
-} from '../../types';
+import { PullRequest, PullRequestInformation } from '../../types';
 import { logDebug, logInfo, logWarning } from '../../utilities/log';
-
-const MERGEABLE_STATUS_UNKNOWN_ERROR = 'Mergeable state is not known yet.';
-
-const getPullRequestInformation = async (
-  octokit: ReturnType<typeof getOctokit>,
-  query: {
-    pullRequestNumber: number;
-    repositoryName: string;
-    repositoryOwner: string;
-  },
-): Promise<PullRequestInformationContinuousIntegrationEnd | undefined> => {
-  const response = await octokit.graphql<GraphQlQueryResponseData | null>(
-    findPullRequestInfoByNumber,
-    query,
-  );
-
-  if (response === null || response.repository.pullRequest === null) {
-    return undefined;
-  }
-
-  const {
-    repository: {
-      pullRequest: {
-        author: { login: authorLogin },
-        id: pullRequestId,
-        commits: {
-          edges: [
-            {
-              node: {
-                commit: {
-                  message: commitMessage,
-                  messageHeadline: commitMessageHeadline,
-                },
-              },
-            },
-          ],
-        },
-        number: pullRequestNumber,
-        reviews: { edges: reviewEdges },
-        mergeStateStatus,
-        mergeable: mergeableState,
-        merged,
-        state: pullRequestState,
-        title: pullRequestTitle,
-      },
-    },
-  } = response as FindPullRequestInfoByNumberResponse;
-
-  return {
-    authorLogin,
-    commitMessage,
-    commitMessageHeadline,
-    mergeStateStatus,
-    mergeableState,
-    merged,
-    pullRequestId,
-    pullRequestNumber,
-    pullRequestState,
-    pullRequestTitle,
-    repositoryName: query.repositoryName,
-    repositoryOwner: query.repositoryOwner,
-    reviewEdges,
-  };
-};
-
-const getMergeablePullRequestInformation = async (
-  octokit: ReturnType<typeof getOctokit>,
-  query: {
-    pullRequestNumber: number;
-    repositoryName: string;
-    repositoryOwner: string;
-  },
-): Promise<PullRequestInformationContinuousIntegrationEnd | undefined> => {
-  const pullRequestInformation = await getPullRequestInformation(
-    octokit,
-    query,
-  );
-
-  if (pullRequestInformation === undefined) {
-    return pullRequestInformation;
-  }
-
-  if (pullRequestInformation.mergeableState === 'UNKNOWN') {
-    throw new Error(MERGEABLE_STATUS_UNKNOWN_ERROR);
-  }
-
-  return pullRequestInformation;
-};
 
 const getMergeablePullRequestInformationWithRetry = async (
   octokit: ReturnType<typeof getOctokit>,
@@ -114,13 +25,20 @@ const getMergeablePullRequestInformationWithRetry = async (
     count?: number;
     maximum: number;
   },
-): Promise<PullRequestInformationContinuousIntegrationEnd | undefined> => {
+): Promise<PullRequestInformation | undefined> => {
+  const githubPreviewApiEnabled =
+    getInput('ENABLE_GITHUB_API_PREVIEW') === 'true';
+
   const retryCount = retries.count ?? 1;
 
   const nextRetryIn = retryCount ** EXPONENTIAL_BACKOFF * MINIMUM_WAIT_TIME;
 
   try {
-    return await getMergeablePullRequestInformation(octokit, query);
+    return await getMergeablePullRequestInformationByPullRequestNumber(
+      octokit,
+      query,
+      { githubPreviewApiEnabled },
+    );
   } catch (error: unknown) {
     logDebug(
       `Failed to get pull request #${query.pullRequestNumber.toString()} information: ${
@@ -154,40 +72,47 @@ export const continuousIntegrationEndHandle = async (
   gitHubLogin: string,
   maximumRetries: number,
 ): Promise<void> => {
-  const pullRequests = (context.eventName === 'workflow_run'
-    ? context.payload.workflow_run
-    : context.payload.check_suite
-  ).pull_requests as Array<{
-    number: number;
-  }>;
+  const pullRequests = (
+    context.eventName === 'workflow_run'
+      ? context.payload.workflow_run
+      : context.payload.check_suite
+  ).pull_requests as PullRequest[];
 
-  const pullRequestsInformationPromises: Array<
-    Promise<PullRequestInformationContinuousIntegrationEnd | undefined>
-  > = [];
+  const branchProtectionRules = await listBranchProtectionRules(
+    octokit,
+    context.repo.owner,
+    context.repo.repo,
+  );
 
-  for (const pullRequest of pullRequests) {
-    pullRequestsInformationPromises.push(
-      getMergeablePullRequestInformationWithRetry(
-        octokit,
-        {
-          pullRequestNumber: pullRequest.number,
-          repositoryName: context.repo.repo,
-          repositoryOwner: context.repo.owner,
-        },
-        {
-          maximum: maximumRetries,
-        },
-      ).catch((): undefined => undefined),
+  const requiresStrictStatusChecksArray =
+    computeRequiresStrictStatusChecksForReferences(
+      branchProtectionRules,
+      pullRequests.map(({ base }: PullRequest): string => base.ref),
     );
-  }
 
   const pullRequestsInformation = await Promise.all(
-    pullRequestsInformationPromises,
+    pullRequests.map(
+      async (
+        pullRequest: PullRequest,
+      ): Promise<PullRequestInformation | undefined> =>
+        getMergeablePullRequestInformationWithRetry(
+          octokit,
+          {
+            pullRequestNumber: pullRequest.number,
+            repositoryName: context.repo.repo,
+            repositoryOwner: context.repo.owner,
+          },
+          { maximum: maximumRetries },
+        ).catch((): undefined => undefined),
+    ),
   );
 
   const mergePromises: Array<Promise<void>> = [];
 
-  for (const pullRequestInformation of pullRequestsInformation) {
+  for (const [
+    index,
+    pullRequestInformation,
+  ] of pullRequestsInformation.entries()) {
     if (pullRequestInformation === undefined) {
       logWarning('Unable to fetch pull request information.');
     } else if (isMatch(pullRequestInformation.authorLogin, gitHubLogin)) {
@@ -197,8 +122,16 @@ export const continuousIntegrationEndHandle = async (
         )}.`,
       );
 
+      // eslint-disable-next-line functional/immutable-data
       mergePromises.push(
-        tryMerge(octokit, maximumRetries, pullRequestInformation),
+        tryMerge(
+          octokit,
+          {
+            maximumRetries,
+            requiresStrictStatusChecks: requiresStrictStatusChecksArray[index],
+          },
+          pullRequestInformation,
+        ),
       );
     } else {
       logInfo(

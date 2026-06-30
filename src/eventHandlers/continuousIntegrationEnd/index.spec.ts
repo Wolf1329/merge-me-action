@@ -3,12 +3,14 @@
  */
 
 import * as core from '@actions/core';
-import { getOctokit } from '@actions/github';
+import { context, getOctokit } from '@actions/github';
 import { StatusCodes } from 'http-status-codes';
 import * as nock from 'nock';
 
-import { useSetTimeoutImmediateInvocation } from '../../../test/utilities';
-import { mergePullRequestMutation } from '../../graphql/mutations';
+import {
+  approveAndMergePullRequestMutation,
+  useSetTimeoutImmediateInvocation,
+} from '../../../test/utilities';
 import {
   FindPullRequestCommitsResponse,
   FindPullRequestInfoByNumberResponse,
@@ -37,6 +39,17 @@ interface Response {
 interface CommitsResponse {
   data: FindPullRequestCommitsResponse;
 }
+
+const branchProtectionRulesResponse = {
+  data: {
+    repository: {
+      branchProtectionRules: {
+        edges: [],
+        pageInfo: { endCursor: '', hasNextPage: false },
+      },
+    },
+  },
+};
 
 const validCommitResponse: CommitsResponse = {
   data: {
@@ -88,192 +101,82 @@ beforeEach((): void => {
 });
 
 describe('continuous integration end event handler', (): void => {
-  it('does not log warnings when it gets triggered by Dependabot', async (): Promise<void> => {
+  it('logs a warning when it cannot find pull request ID by pull request number (null)', async (): Promise<void> => {
     expect.assertions(1);
 
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
     nock('https://api.github.com')
       .post('/graphql')
-      .reply(StatusCodes.OK, response)
+      .reply(StatusCodes.OK, branchProtectionRulesResponse)
       .post('/graphql')
-      .reply(StatusCodes.OK, validCommitResponse);
-    nock('https://api.github.com').post('/graphql').reply(StatusCodes.OK);
+      .reply(StatusCodes.OK, { data: null });
 
     await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
 
-    expect(warningSpy).not.toHaveBeenCalled();
-  });
-
-  it('does not approve an already approved pull request', async (): Promise<void> => {
-    expect.assertions(0);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response)
-      .post('/graphql')
-      .reply(StatusCodes.OK, validCommitResponse);
-    nock('https://api.github.com')
-      .post('/graphql', {
-        query: mergePullRequestMutation(AllowedMergeMethods.SQUASH),
-        variables: {
-          commitHeadline: COMMIT_HEADLINE,
-          pullRequestId: PULL_REQUEST_ID,
-        },
-      })
-      .reply(StatusCodes.OK);
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-  });
-
-  it('does not approve pull requests that are not mergeable', async (): Promise<void> => {
-    expect.assertions(1);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'CONFLICTING',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response);
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-
-    expect(infoSpy).toHaveBeenCalledWith(
-      'Pull request is not in a mergeable state: CONFLICTING.',
+    expect(warningSpy).toHaveBeenCalledWith(
+      'Unable to fetch pull request information.',
     );
   });
 
-  it('does not approve pull requests that are already merged', async (): Promise<void> => {
+  it('logs a warning when it cannot find pull request ID by pull request number', async (): Promise<void> => {
     expect.assertions(1);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: true,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
 
     nock('https://api.github.com')
       .post('/graphql')
-      .reply(StatusCodes.OK, response);
+      .reply(StatusCodes.OK, branchProtectionRulesResponse)
+      .post('/graphql')
+      .reply(StatusCodes.OK, { data: { repository: { pullRequest: null } } });
 
     await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
 
-    expect(infoSpy).toHaveBeenCalledWith('Pull request is already merged.');
+    expect(warningSpy).toHaveBeenCalledWith(
+      'Unable to fetch pull request information.',
+    );
   });
 
-  it('does not approve pull requests for which status is not clean', async (): Promise<void> => {
+  it('logs a warning when the event is workflow_run and it cannot find pull request ID by pull request number', async (): Promise<void> => {
     expect.assertions(1);
 
-    const response: Response = {
+    const { check_suite: checkSuite, eventName } = context.payload;
+
+    /* eslint-disable functional/immutable-data */
+    context.eventName = 'workflow_run';
+    context.payload.workflow_run = checkSuite;
+    delete context.payload.check_suite;
+    /* eslint-enable functional/immutable-data */
+
+    nock('https://api.github.com')
+      .post('/graphql')
+      .reply(StatusCodes.OK, branchProtectionRulesResponse)
+      .post('/graphql')
+      .reply(StatusCodes.OK, { data: { repository: { pullRequest: null } } });
+
+    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
+
+    /* eslint-disable require-atomic-updates */
+    /* eslint-disable functional/immutable-data */
+    context.eventName = eventName;
+    context.payload.check_suite = checkSuite;
+    delete context.payload.workflow_run;
+    /* eslint-enable require-atomic-updates */
+    /* eslint-enable functional/immutable-data */
+
+    expect(warningSpy).toHaveBeenCalledWith(
+      'Unable to fetch pull request information.',
+    );
+  });
+
+  it('retries fetching pull request information for which mergeable status is unknown until retries are exceeded', async (): Promise<void> => {
+    expect.assertions(1);
+
+    const firstResponse: Response = {
       data: {
         repository: {
           pullRequest: {
             author: { login: 'dependabot' },
+            base: {
+              // eslint-disable-next-line unicorn/prevent-abbreviations
+              ref: 'master',
+            },
             commits: {
               edges: [
                 {
@@ -288,7 +191,7 @@ describe('continuous integration end event handler', (): void => {
             },
             id: PULL_REQUEST_ID,
             mergeStateStatus: 'UNKNOWN',
-            mergeable: 'MERGEABLE',
+            mergeable: 'UNKNOWN',
             merged: false,
             number: PULL_REQUEST_NUMBER,
             reviews: { edges: [{ node: { state: 'APPROVED' } }] },
@@ -301,12 +204,17 @@ describe('continuous integration end event handler', (): void => {
 
     nock('https://api.github.com')
       .post('/graphql')
-      .reply(StatusCodes.OK, response);
+      .reply(StatusCodes.OK, branchProtectionRulesResponse)
+      .post('/graphql')
+      .times(3)
+      .reply(StatusCodes.OK, firstResponse);
+
+    useSetTimeoutImmediateInvocation();
 
     await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
 
-    expect(infoSpy).toHaveBeenCalledWith(
-      'Pull request cannot be merged cleanly. Current state: UNKNOWN.',
+    expect(debugSpy).toHaveBeenLastCalledWith(
+      'Failed to get pull request #7 information after 3 attempts. Retries exhausted.',
     );
   });
 
@@ -318,6 +226,10 @@ describe('continuous integration end event handler', (): void => {
         repository: {
           pullRequest: {
             author: { login: 'dependabot' },
+            base: {
+              // eslint-disable-next-line unicorn/prevent-abbreviations
+              ref: 'master',
+            },
             commits: {
               edges: [
                 {
@@ -348,6 +260,10 @@ describe('continuous integration end event handler', (): void => {
         repository: {
           pullRequest: {
             author: { login: 'dependabot' },
+            base: {
+              // eslint-disable-next-line unicorn/prevent-abbreviations
+              ref: 'master',
+            },
             commits: {
               edges: [
                 {
@@ -375,56 +291,19 @@ describe('continuous integration end event handler', (): void => {
 
     nock('https://api.github.com')
       .post('/graphql')
+      .reply(StatusCodes.OK, branchProtectionRulesResponse)
+      .post('/graphql')
       .reply(StatusCodes.OK, firstResponse);
 
     nock('https://api.github.com')
       .post('/graphql')
       .reply(StatusCodes.OK, secondResponse);
 
+    useSetTimeoutImmediateInvocation();
+
     await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
 
     expect(infoSpy).toHaveBeenLastCalledWith('Pull request is already merged.');
-  });
-
-  it('does not approve pull requests for which state is not open', async (): Promise<void> => {
-    expect.assertions(1);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'CLOSED',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response);
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-
-    expect(infoSpy).toHaveBeenCalledWith('Pull request is not open: CLOSED.');
   });
 
   it('does not merge if request not created by the selected GITHUB_LOGIN and logs it', async (): Promise<void> => {
@@ -435,6 +314,10 @@ describe('continuous integration end event handler', (): void => {
         repository: {
           pullRequest: {
             author: { login: 'dependabot' },
+            base: {
+              // eslint-disable-next-line unicorn/prevent-abbreviations
+              ref: 'master',
+            },
             commits: {
               edges: [
                 {
@@ -461,6 +344,8 @@ describe('continuous integration end event handler', (): void => {
 
     nock('https://api.github.com')
       .post('/graphql')
+      .reply(StatusCodes.OK, branchProtectionRulesResponse)
+      .post('/graphql')
       .reply(StatusCodes.OK, response);
 
     await continuousIntegrationEndHandle(octokit, 'some-other-login', 3);
@@ -470,14 +355,18 @@ describe('continuous integration end event handler', (): void => {
     );
   });
 
-  it('does not merge if a commit was not created by the original author and ENABLED_FOR_MANUAL_CHANGES is not set to "true"', async (): Promise<void> => {
-    expect.assertions(1);
+  it('retries, approves and merges a pull request', async (): Promise<void> => {
+    expect.assertions(0);
 
     const response: Response = {
       data: {
         repository: {
           pullRequest: {
             author: { login: 'dependabot' },
+            base: {
+              // eslint-disable-next-line unicorn/prevent-abbreviations
+              ref: 'master',
+            },
             commits: {
               edges: [
                 {
@@ -494,360 +383,7 @@ describe('continuous integration end event handler', (): void => {
             mergeable: 'MERGEABLE',
             merged: false,
             number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    const commitsResponse: CommitsResponse = {
-      data: {
-        repository: {
-          pullRequest: {
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      author: {
-                        user: {
-                          login: 'dependabot',
-                        },
-                      },
-                      signature: {
-                        isValid: true,
-                      },
-                    },
-                  },
-                },
-                {
-                  node: {
-                    commit: {
-                      author: {
-                        user: {
-                          login: 'not-dependabot',
-                        },
-                      },
-                      signature: {
-                        isValid: true,
-                      },
-                    },
-                  },
-                },
-              ],
-              pageInfo: {
-                endCursor: '',
-                hasNextPage: false,
-              },
-            },
-          },
-        },
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response)
-      .post('/graphql')
-      .reply(StatusCodes.OK, commitsResponse);
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-
-    expect(infoSpy).toHaveBeenCalledWith(
-      `Pull request changes were not made by ${DEPENDABOT_GITHUB_LOGIN}.`,
-    );
-  });
-
-  it('does not merge if a commit signature is not valid and ENABLED_FOR_MANUAL_CHANGES is not set to "true"', async (): Promise<void> => {
-    expect.assertions(1);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    const commitsResponse: CommitsResponse = {
-      data: {
-        repository: {
-          pullRequest: {
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      author: {
-                        user: {
-                          login: 'dependabot',
-                        },
-                      },
-                      signature: {
-                        isValid: true,
-                      },
-                    },
-                  },
-                },
-                {
-                  node: {
-                    commit: {
-                      author: {
-                        user: {
-                          login: 'dependabot',
-                        },
-                      },
-                      signature: {
-                        isValid: false,
-                      },
-                    },
-                  },
-                },
-              ],
-              pageInfo: {
-                endCursor: '',
-                hasNextPage: false,
-              },
-            },
-          },
-        },
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response)
-      .post('/graphql')
-      .reply(StatusCodes.OK, commitsResponse);
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-
-    expect(warningSpy).toHaveBeenCalledWith(
-      `Commit signature not present or invalid, regarding PR as modified.`,
-    );
-  });
-
-  it('does not log any warnings if last commit was not created by the selected GITHUB_LOGIN and ENABLED_FOR_MANUAL_CHANGES is set to "true"', async (): Promise<void> => {
-    expect.assertions(1);
-
-    getInputSpy.mockImplementation((name: string): string => {
-      if (name === 'ENABLED_FOR_MANUAL_CHANGES') {
-        return 'true';
-      }
-
-      if (name === 'GITHUB_LOGIN') {
-        return DEPENDABOT_GITHUB_LOGIN;
-      }
-
-      if (name === 'MERGE_METHOD') {
-        return 'SQUASH';
-      }
-
-      if (name === 'PRESET') {
-        return 'DEPENDABOT_MINOR';
-      }
-
-      return '';
-    });
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    const commitsResponse: CommitsResponse = {
-      data: {
-        repository: {
-          pullRequest: {
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      author: {
-                        user: {
-                          login: 'dependabot',
-                        },
-                      },
-                      signature: {
-                        isValid: true,
-                      },
-                    },
-                  },
-                },
-                {
-                  node: {
-                    commit: {
-                      author: {
-                        user: {
-                          login: 'not-dependabot',
-                        },
-                      },
-                      signature: {
-                        isValid: true,
-                      },
-                    },
-                  },
-                },
-              ],
-              pageInfo: {
-                endCursor: '',
-                hasNextPage: false,
-              },
-            },
-          },
-        },
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response)
-      .post('/graphql')
-      .reply(StatusCodes.OK, commitsResponse);
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-
-    expect(infoSpy).not.toHaveBeenCalledWith(
-      `Pull request changes were not made by ${DEPENDABOT_GITHUB_LOGIN}.`,
-    );
-  });
-
-  it('logs a warning if it cannot find the PR commits', async (): Promise<void> => {
-    expect.assertions(1);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    const commitsResponse = {
-      data: {
-        repository: {},
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response)
-      .post('/graphql')
-      .reply(StatusCodes.OK, commitsResponse);
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-
-    expect(warningSpy).toHaveBeenCalledWith(
-      `Could not find PR commits, aborting.`,
-    );
-  });
-
-  it('logs a warning when it cannot find pull request ID by pull request number', async (): Promise<void> => {
-    expect.assertions(1);
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, { data: { repository: { pullRequest: null } } });
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
-
-    expect(warningSpy).toHaveBeenCalled();
-  });
-
-  it('retries up to two times before failing', async (): Promise<void> => {
-    expect.assertions(5);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
+            reviews: { edges: [] },
             state: 'OPEN',
             title: 'bump @types/jest from 26.0.12 to 26.1.0',
           },
@@ -856,120 +392,29 @@ describe('continuous integration end event handler', (): void => {
     };
 
     nock('https://api.github.com')
+      .post('/graphql')
+      .reply(StatusCodes.OK, branchProtectionRulesResponse)
       .post('/graphql')
       .reply(StatusCodes.OK, response)
       .post('/graphql')
       .reply(StatusCodes.OK, validCommitResponse)
       .post('/graphql')
-      .times(3)
+      .times(2)
       .reply(
         403,
         '##[error]GraphqlError: Base branch was modified. Review and try the merge again.',
-      );
+      )
+      .post('/graphql', {
+        query: approveAndMergePullRequestMutation(AllowedMergeMethods.SQUASH),
+        variables: {
+          commitHeadline: COMMIT_HEADLINE,
+          pullRequestId: PULL_REQUEST_ID,
+        },
+      })
+      .reply(StatusCodes.OK);
 
     useSetTimeoutImmediateInvocation();
 
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 2);
-
-    expect(infoSpy).toHaveBeenCalledWith(
-      'An error ocurred while merging the Pull Request. This is usually caused by the base branch being out of sync with the target branch. In this case, the base branch must be rebased. Some tools, such as Dependabot, do that automatically.',
-    );
-    expect(infoSpy).toHaveBeenCalledWith('Retrying in 1000...');
-    expect(infoSpy).toHaveBeenCalledWith('Retrying in 4000...');
-    expect(debugSpy).toHaveBeenCalledTimes(1);
-    expect(debugSpy).toHaveBeenCalledWith(
-      'Original error: HttpError: ##[error]GraphqlError: Base branch was modified. Review and try the merge again..',
-    );
-  });
-
-  it('fails the backoff strategy when the error is not "Base branch was modified"', async (): Promise<void> => {
-    expect.assertions(2);
-
-    const response: Response = {
-      data: {
-        repository: {
-          pullRequest: {
-            author: { login: 'dependabot' },
-            commits: {
-              edges: [
-                {
-                  node: {
-                    commit: {
-                      message: COMMIT_MESSAGE,
-                      messageHeadline: COMMIT_HEADLINE,
-                    },
-                  },
-                },
-              ],
-            },
-            id: PULL_REQUEST_ID,
-            mergeable: 'MERGEABLE',
-            merged: false,
-            number: PULL_REQUEST_NUMBER,
-            reviews: { edges: [{ node: { state: 'APPROVED' } }] },
-            state: 'OPEN',
-            title: 'bump @types/jest from 26.0.12 to 26.1.0',
-          },
-        },
-      },
-    };
-
-    nock('https://api.github.com')
-      .post('/graphql')
-      .reply(StatusCodes.OK, response)
-      .post('/graphql')
-      .reply(StatusCodes.OK, validCommitResponse)
-      .post('/graphql')
-      .reply(403, '##[error]GraphqlError: This is a different error.');
-
-    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 2);
-
-    expect(infoSpy).toHaveBeenCalledWith(
-      'An error ocurred while merging the Pull Request. This is usually caused by the base branch being out of sync with the target branch. In this case, the base branch must be rebased. Some tools, such as Dependabot, do that automatically.',
-    );
-    expect(debugSpy).toHaveBeenCalledWith(
-      'Original error: HttpError: ##[error]GraphqlError: This is a different error..',
-    );
-  });
-
-  describe('for a dependabot initiated pull request', (): void => {
-    it('does nothing if the PR title contains a major bump but PRESET specifies DEPENDABOT_PATCH', async (): Promise<void> => {
-      expect.assertions(0);
-
-      const response: Response = {
-        data: {
-          repository: {
-            pullRequest: {
-              author: { login: 'dependabot' },
-              commits: {
-                edges: [
-                  {
-                    node: {
-                      commit: {
-                        message: COMMIT_MESSAGE,
-                        messageHeadline: COMMIT_HEADLINE,
-                      },
-                    },
-                  },
-                ],
-              },
-              id: PULL_REQUEST_ID,
-              mergeable: 'MERGEABLE',
-              merged: false,
-              number: PULL_REQUEST_NUMBER,
-              reviews: { edges: [] },
-              state: 'OPEN',
-              title: 'bump @types/jest from 26.0.12 to 27.0.13',
-            },
-          },
-        },
-      };
-
-      nock('https://api.github.com')
-        .post('/graphql')
-        .reply(StatusCodes.OK, response);
-
-      await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 2);
-    });
+    await continuousIntegrationEndHandle(octokit, DEPENDABOT_GITHUB_LOGIN, 3);
   });
 });

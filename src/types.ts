@@ -4,12 +4,6 @@ export interface CommitMessageHeadlineGroup {
   };
 }
 
-export interface GroupName {
-  groups: {
-    name: string;
-  };
-}
-
 export type ReviewEdges = Array<
   | {
       node: {
@@ -24,7 +18,7 @@ export type ReviewEdges = Array<
   | undefined
 >;
 
-export interface PullRequestInformationContinuousIntegrationEnd {
+export interface PullRequestInformation {
   authorLogin: string;
   commitMessage: string;
   commitMessageHeadline: string;
@@ -40,9 +34,12 @@ export interface PullRequestInformationContinuousIntegrationEnd {
   reviewEdges: ReviewEdges;
 }
 
-interface PullRequest {
+export interface PullRequest {
   author: {
     login: string;
+  };
+  base: {
+    ref: string;
   };
   commits: {
     edges: Array<{
@@ -74,14 +71,6 @@ export interface PullRequestCommitNode {
     signature: {
       isValid: boolean;
     } | null;
-  };
-}
-
-export interface FindPullRequestsInfoByReferenceNameResponse {
-  repository: {
-    pullRequests: {
-      nodes: PullRequest[];
-    };
   };
 }
 

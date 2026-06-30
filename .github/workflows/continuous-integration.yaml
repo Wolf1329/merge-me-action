@@ -4,31 +4,25 @@ on:
   pull_request:
     branches:
       - master
-  push:
-    branches:
-      - master
 
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
-          node-version: 15
-      - name: Cache dependencies
-        uses: actions/cache@v2.1.5
-        with:
-          key: npm-${{ hashFiles('./package-lock.json') }}
-          path: ~/.npm
-          restore-keys: |
-            npm-
+          cache: 'npm'
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         run: npm ci --ignore-scripts --no-audit --no-progress --prefer-offline
       - name: Build
         run: |
@@ -38,98 +32,86 @@ jobs:
     timeout-minutes: 5
   format:
     name: Format
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
-          node-version: 15
-      - name: Cache dependencies
-        uses: actions/cache@v2.1.5
-        with:
-          key: npm-${{ hashFiles('./package-lock.json') }}
-          path: ~/.npm
-          restore-keys: |
-            npm-
+          cache: 'npm'
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         run: npm ci --ignore-scripts --no-audit --no-progress --prefer-offline
       - name: Format
         run: npm run format
     timeout-minutes: 5
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
-          node-version: 15
-      - name: Cache dependencies
-        uses: actions/cache@v2.1.5
-        with:
-          key: npm-${{ hashFiles('./package-lock.json') }}
-          path: ~/.npm
-          restore-keys: |
-            npm-
+          cache: 'npm'
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         run: npm ci --ignore-scripts --no-audit --no-progress --prefer-offline
       - name: Lint
         run: npm run lint
     timeout-minutes: 5
   spellcheck:
     name: Spellcheck
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
-          node-version: 15
-      - name: Cache dependencies
-        uses: actions/cache@v2.1.5
-        with:
-          key: npm-${{ hashFiles('./package-lock.json') }}
-          path: ~/.npm
-          restore-keys: |
-            npm-
+          cache: 'npm'
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         run: npm ci --ignore-scripts --no-audit --no-progress --prefer-offline
       - name: Spellcheck
         run: npm run spellcheck
     timeout-minutes: 5
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
-          node-version: 12
+          cache: 'npm'
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
       - name: Install latest npm
         run: npm install --global npm@latest
-      - name: Cache dependencies
-        uses: actions/cache@v2.1.5
-        with:
-          key: npm-${{ hashFiles('./package-lock.json') }}
-          path: ~/.npm
-          restore-keys: |
-            npm-
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         run: npm ci --ignore-scripts --no-audit --no-progress --prefer-offline
       - name: Test
         run: npm run test:ci
@@ -140,25 +122,38 @@ jobs:
     timeout-minutes: 5
   types:
     name: Types
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
-          node-version: 15
-      - name: Cache dependencies
-        uses: actions/cache@v2.1.5
-        with:
-          key: npm-${{ hashFiles('./package-lock.json') }}
-          path: ~/.npm
-          restore-keys: |
-            npm-
+          cache: 'npm'
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         run: npm ci --ignore-scripts --no-audit --no-progress --prefer-offline
       - name: Types
         run: npm run types
+    timeout-minutes: 5
+  merge-me:
+    needs:
+      - build
+      - format
+      - lint
+      - spellcheck
+      - test
+      - types
+    name: Merge me!
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Merge me!
+        uses: ridedott/merge-me-action@master
+        with:
+          GITHUB_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
     timeout-minutes: 5

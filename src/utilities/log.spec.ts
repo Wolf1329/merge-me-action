@@ -7,15 +7,23 @@ const errorSpy = jest.spyOn(core, 'error').mockImplementation();
 const infoSpy = jest.spyOn(core, 'info').mockImplementation();
 const warningSpy = jest.spyOn(core, 'warning').mockImplementation();
 
+/* eslint-disable functional/immutable-data */
 const errorWithoutStack = new Error('I am an error.');
 delete errorWithoutStack.stack;
 
 const errorWithStack = new Error('I am an error.');
-/* eslint-disable-next-line immutable/no-mutation */
 errorWithStack.stack = 'I am a stack.';
+/* eslint-enable functional/immutable-data */
 
 describe.each<
-  [string, (value: unknown) => void, jest.SpyInstance<void, [Error | string]>]
+  [
+    string,
+    (value: unknown) => void,
+    jest.SpyInstance<
+      void,
+      [message: Error | string, properties?: core.AnnotationProperties]
+    >,
+  ]
 >([
   ['logError', logError, errorSpy],
   ['logWarning', logWarning, warningSpy],
@@ -24,7 +32,10 @@ describe.each<
   (
     _: string,
     logFunction: (value: unknown) => void,
-    coreFunction: jest.SpyInstance<void, [Error | string]>,
+    coreFunction: jest.SpyInstance<
+      void,
+      [message: Error | string, properties?: core.AnnotationProperties]
+    >,
   ): void => {
     it.each<[unknown, string]>([
       ['I am a string.', 'I am a string.'],

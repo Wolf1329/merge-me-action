@@ -3,17 +3,12 @@ export interface CommitMessageHeadlineGroup {
         commitHeadline: string;
     };
 }
-export interface GroupName {
-    groups: {
-        name: string;
-    };
-}
-export declare type ReviewEdges = Array<{
+export type ReviewEdges = Array<{
     node: {
         state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
     };
 } | undefined>;
-export interface PullRequestInformationContinuousIntegrationEnd {
+export interface PullRequestInformation {
     authorLogin: string;
     commitMessage: string;
     commitMessageHeadline: string;
@@ -28,9 +23,12 @@ export interface PullRequestInformationContinuousIntegrationEnd {
     repositoryOwner: string;
     reviewEdges: ReviewEdges;
 }
-interface PullRequest {
+export interface PullRequest {
     author: {
         login: string;
+    };
+    base: {
+        ref: string;
     };
     commits: {
         edges: Array<{
@@ -65,13 +63,6 @@ export interface PullRequestCommitNode {
         } | null;
     };
 }
-export interface FindPullRequestsInfoByReferenceNameResponse {
-    repository: {
-        pullRequests: {
-            nodes: PullRequest[];
-        };
-    };
-}
 export interface FindPullRequestInfoByNumberResponse {
     repository: {
         pullRequest: PullRequest;
@@ -92,7 +83,6 @@ export interface FindPullRequestCommitsResponse {
         };
     };
 }
-export declare type MergeableState = 'CONFLICTING' | 'MERGEABLE' | 'UNKNOWN';
-export declare type PullRequestState = 'CLOSED' | 'MERGED' | 'OPEN';
-export declare type MergeStateStatus = 'BEHIND' | 'BLOCKED' | 'CLEAN' | 'DIRTY' | 'DRAFT' | 'HAS_HOOKS' | 'UNKNOWN' | 'UNSTABLE';
-export {};
+export type MergeableState = 'CONFLICTING' | 'MERGEABLE' | 'UNKNOWN';
+export type PullRequestState = 'CLOSED' | 'MERGED' | 'OPEN';
+export type MergeStateStatus = 'BEHIND' | 'BLOCKED' | 'CLEAN' | 'DIRTY' | 'DRAFT' | 'HAS_HOOKS' | 'UNKNOWN' | 'UNSTABLE';

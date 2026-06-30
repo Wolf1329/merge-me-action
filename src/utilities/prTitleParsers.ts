@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable max-statements */
 
-import { parseInputMergePreset } from './inputParsers';
+import { AllowedMergePresets, parseInputMergePreset } from './inputParsers';
 
 export const checkPullRequestTitleForMergePreset = (title: string): boolean => {
   const category = parseInputMergePreset();
@@ -10,14 +10,16 @@ export const checkPullRequestTitleForMergePreset = (title: string): boolean => {
     return true;
   }
 
-  const semanticVersionTitleRegExp = /bump .* from (?<from>.*) to (?<to>.*)/iu;
+  const semanticVersionTitleRegExp =
+    /bump .* from (?<from>\S+) to (?<to>\S+)/iu;
   const match = semanticVersionTitleRegExp.exec(title);
 
   if (match === null) {
     return true;
   }
 
-  const semVersionRegExp = /^(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)$/u;
+  const semVersionRegExp =
+    /^(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)$/u;
 
   const matchGroups = match.groups;
   // Using non-null assertions per: https://github.com/microsoft/TypeScript/issues/32098
@@ -42,7 +44,7 @@ export const checkPullRequestTitleForMergePreset = (title: string): boolean => {
   const toMinor = toMatchGroups!.minor!;
 
   if (Number.parseInt(fromMinor, 10) !== Number.parseInt(toMinor, 10)) {
-    return category === 'DEPENDABOT_MINOR';
+    return category === AllowedMergePresets.DEPENDABOT_MINOR;
   }
 
   return true;

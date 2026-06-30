@@ -9,26 +9,23 @@ jobs:
   release:
     if: contains(github.event.commits[0].message, 'chore(release)') == false
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           # Fetch all history.
           fetch-depth: 0
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
-          node-version: 15
-      - name: Cache dependencies
-        uses: actions/cache@v2.1.5
-        with:
-          key: npm-${{ hashFiles('./package-lock.json') }}
-          path: ~/.npm
-          restore-keys: |
-            npm-
+          cache: 'npm'
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         run: npm ci --ignore-scripts --no-audit --no-progress --prefer-offline
       - name: Build
         run: |
@@ -39,14 +36,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.DOTTBOTT_TOKEN }}
         id: release
         name: Release
-        uses: ridedott/release-me-action@v3.5.22
+        uses: ridedott/release-me-action@v3.10.114
         with:
           commit-assets: |
             ./dist
           node-module: true
+          release-rules-append: |
+            [
+              { "release": false, "scope": "deps-dev", "type": "chore" }
+            ]
       - if: steps.release.outputs.released == 'true'
         name: Setup Node.js with GitHub Packages
-        uses: actions/setup-node@v2.1.5
+        uses: actions/setup-node@v6.4.0
         with:
           registry-url: 'https://npm.pkg.github.com'
       - env:
@@ -56,7 +57,7 @@ jobs:
         run: npm publish
       - if: steps.release.outputs.released == 'true'
         name: Authenticate Git
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
           persist-credentials: true

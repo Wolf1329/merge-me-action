@@ -1,5 +1,5 @@
 import { getOctokit } from '@actions/github';
-import { GraphQlQueryResponseData } from '@octokit/graphql';
+import type { GraphQlQueryResponseData } from '@octokit/graphql';
 export interface IterableList<Iterable> {
     edges: Array<{
         node: Iterable;
@@ -13,5 +13,5 @@ export declare const makeGraphqlIterator: <IterableData>(octokit: ReturnType<typ
     extractListFunction: (response: GraphQlQueryResponseData) => IterableList<IterableData> | undefined;
     parameters: object;
     query: string;
-}) => AsyncGenerator<IterableData, any, unknown>;
+}) => AsyncGenerator<IterableData>;
 //# sourceMappingURL=makeGraphqlIterator.d.ts.map
